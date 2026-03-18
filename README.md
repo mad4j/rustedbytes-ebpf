@@ -26,7 +26,7 @@ flowchart LR
   NIC[Network interface] -->|Packets| X
   X -->|Pass / Drop / Redirect| NIC
 
-  L <--> |map fds / updates / reads| M
+  L <-->|map fds / updates / reads| M
   L -->|load + attach| X
 ```
 
