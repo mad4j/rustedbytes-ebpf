@@ -15,11 +15,11 @@ This repository is structured as a multi-crate Rust workspace that builds:
 ```mermaid
 flowchart LR
   subgraph Userspace
-    L[rustedbytes-ebpf\n(loader)]
+    L[rustedbytes-ebpf<br/>(loader)]
   end
 
   subgraph Kernel
-    X[rustedbytes-ebpf-ebpf\n(XDP program)]
+    X[rustedbytes-ebpf-ebpf<br/>(XDP program)]
     M[(BPF Maps)]
   end
 
