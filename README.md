@@ -1,67 +1,119 @@
 # rustedbytes-ebpf
 
-Template di modulo kernel eBPF implementato in Rust con Aya.
+A Rust + Aya template project for building and running an eBPF program (XDP) with a user-space loader.
 
-## Struttura del Progetto
+## Technical overview
 
+This repository is structured as a multi-crate Rust workspace that builds:
+
+- **An eBPF program** (kernel space) compiled to eBPF bytecode and attached at the **XDP** hook.
+- **A user-space loader** responsible for loading, verifying, and attaching the program, and for interacting with **BPF maps**.
+- **A common crate** that contains types shared between user space and kernel space.
+
+### Architecture
+
+```mermaid
+flowchart LR
+  subgraph Userspace
+    L[rustedbytes-ebpf\n(loader)]
+  end
+
+  subgraph Kernel
+    X[rustedbytes-ebpf-ebpf\n(XDP program)]
+    M[(BPF Maps)]
+  end
+
+  NIC[Network interface] -->|Packets| X
+  X -->|Pass / Drop / Redirect| NIC
+
+  L <--> |map fds / updates / reads| M
+  L -->|load + attach| X
 ```
-rustedbytes-ebpf/           Progetto principale (loader userspace)
-rustedbytes-ebpf-ebpf/      Programma eBPF (kernel space, XDP)
-rustedbytes-ebpf-common/    Tipi condivisi tra kernel e userspace
-xtask/                      Helper per build e run
-test-env/                   Ambiente virtuale per i test (Vagrant)
+
+### Build pipeline
+
+The project uses **Aya** to build and load eBPF code from Rust. In practice, the flow is:
+
+```mermaid
+sequenceDiagram
+  participant Dev as Developer
+  participant XTask as cargo xtask
+  participant Rust as Rust toolchain
+  participant LLVM as LLVM/bpf-linker
+  participant Loader as Userspace loader
+  participant Kernel as Linux kernel
+
+  Dev->>XTask: cargo xtask build/run
+  XTask->>Rust: compile userspace crates (stable)
+  XTask->>Rust: compile eBPF crate (nightly + rust-src)
+  Rust->>LLVM: link to eBPF (bpf-linker)
+  XTask->>Loader: run loader (sudo)
+  Loader->>Kernel: load + verify + attach XDP program
+  Loader->>Kernel: create/open maps and pin if needed
 ```
 
-## Prerequisiti
+## Project structure
+
+```text
+rustedbytes-ebpf/           Main project (user-space loader)
+rustedbytes-ebpf-ebpf/      eBPF program (kernel space, XDP)
+rustedbytes-ebpf-common/    Types shared between kernel and userspace
+xtask/                      Build/run helpers (cargo xtask)
+test-env/                   Virtualized test environment (Vagrant)
+```
+
+## Requirements
 
 1. **Rust stable**: `rustup toolchain install stable`
-2. **Rust nightly** (per la compilazione eBPF): `rustup toolchain install nightly --component rust-src`
+2. **Rust nightly** (for eBPF compilation): `rustup toolchain install nightly --component rust-src`
 3. **bpf-linker**: `cargo install bpf-linker`
-4. **Vagrant** (per i test in VM): https://www.vagrantup.com/downloads
-5. **VirtualBox** (provider VM): https://www.virtualbox.org/
+4. **Vagrant** (for VM-based tests): https://www.vagrantup.com/downloads
+5. **VirtualBox** (VM provider): https://www.virtualbox.org/
+
+> Notes
+> - Running the loader requires a recent Linux kernel with eBPF enabled and root privileges (or the appropriate capabilities).
 
 ## Build
 
-```shell
-# Compila sia il programma eBPF che il loader userspace
+```sh
+# Build both the eBPF program and the user-space loader
 cargo build --package rustedbytes-ebpf
 
-# Oppure con xtask
+# Or via xtask
 cargo xtask build
 
-# Build di release
+# Release build
 cargo xtask build --release
 ```
 
-## Esecuzione
+## Run
 
-Richiede privilegi di root per caricare il programma eBPF:
+Root privileges are required to load and attach an eBPF program:
 
-```shell
-# Esegui sulla interfaccia eth0 (default)
+```sh
+# Run on eth0 (default)
 cargo xtask run
 
-# Oppure specifica l'interfaccia
+# Or specify the interface
 cargo xtask run --iface lo
 
-# Direttamente con cargo (richiede sudo)
+# Directly with cargo (requires sudo)
 sudo -E cargo run --release -- --iface eth0
 ```
 
-## Test in Ambiente Virtuale
+## Testing in a virtual environment
 
-Il progetto include un ambiente di test basato su Vagrant per eseguire il modulo
-in una macchina virtuale isolata.
+The project includes a Vagrant-based test environment to run the module inside an isolated VM.
 
-```shell
-# Avvia la VM e lancia i test automaticamente
+```sh
+# Boot the VM and run tests automatically
 cargo xtask test-vm
 
-# Oppure usa lo script direttamente
+# Or run the script directly
 cd test-env
 ./run-tests.sh
 
-# Accedi alla VM manualmente
+# SSH into the VM manually
 cd test-env
 vagrant up
 vagrant ssh
@@ -69,20 +121,18 @@ vagrant ssh
 
 ## Cross-compilation (macOS)
 
-```shell
+```sh
 CC=${ARCH}-linux-musl-gcc cargo build --package rustedbytes-ebpf --release \
   --target=${ARCH}-unknown-linux-musl \
-  --config=target.${ARCH}-unknown-linux-musl.linker=\"${ARCH}-linux-musl-gcc\"
+  --config=target.${ARCH}-unknown-linux-musl.linker="${ARCH}-linux-musl-gcc"
 ```
 
-## Licenza
+## License
 
-Ad eccezione del codice eBPF, rustedbytes-ebpf è distribuito sotto i termini
-della [licenza MIT] o della [Apache License] (versione 2.0), a scelta.
+Except for the eBPF code, rustedbytes-ebpf is distributed under the terms of the **MIT license** or the **Apache License (Version 2.0)**, at your option.
 
-Il codice eBPF è distribuito sotto i termini della
-[GNU General Public License, Version 2] o della [MIT license], a scelta.
+The eBPF code is distributed under the terms of the **GNU General Public License, Version 2** or the **MIT license**, at your option.
 
-[Apache license]: LICENSE-APACHE
+[Apache License]: LICENSE-APACHE
 [MIT license]: LICENSE-MIT
 [GNU General Public License, Version 2]: LICENSE-GPL2
