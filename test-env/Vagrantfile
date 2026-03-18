@@ -1,0 +1,80 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Vagrantfile for running rustedbytes-ebpf integration tests in a virtual machine.
+# The VM is provisioned with all necessary dependencies to build and run the eBPF module.
+#
+# Usage:
+#   vagrant up       # Start and provision the VM
+#   vagrant ssh      # SSH into the VM
+#   vagrant halt     # Stop the VM
+#   vagrant destroy  # Destroy the VM
+#
+# Or use the xtask helper:
+#   cargo xtask test-vm
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/jammy64"
+  config.vm.box_version = ">= 0"
+
+  config.vm.provider "virtualbox" do |vb|
+    vb.name = "rustedbytes-ebpf-test"
+    vb.memory = "2048"
+    vb.cpus = 2
+  end
+
+  # Sync the project root into the VM
+  config.vm.synced_folder "..", "/vagrant"
+
+  # Provision: install dependencies
+  config.vm.provision "shell", inline: <<-SHELL
+    set -euxo pipefail
+
+    # Update package lists
+    apt-get update -qq
+
+    # Install required system packages
+    apt-get install -y --no-install-recommends \
+      curl \
+      build-essential \
+      pkg-config \
+      libssl-dev \
+      linux-headers-$(uname -r) \
+      llvm \
+      clang \
+      libelf-dev \
+      zlib1g-dev
+
+    # Install Rust (stable + nightly)
+    if ! command -v rustup &>/dev/null; then
+      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --default-toolchain stable --profile minimal
+    fi
+
+    # Source cargo environment for subsequent commands
+    export PATH="/root/.cargo/bin:$PATH"
+
+    rustup toolchain install nightly --component rust-src
+    rustup target add x86_64-unknown-linux-gnu
+
+    # Install bpf-linker (required to compile eBPF programs)
+    cargo install bpf-linker
+
+    # Pre-fetch workspace dependencies so tests run offline
+    cd /vagrant && cargo fetch
+
+    echo "Provisioning complete."
+  SHELL
+
+  # Run integration tests after provisioning
+  config.vm.provision "shell", run: "never", name: "test", inline: <<-SHELL
+    set -euxo pipefail
+    export PATH="/root/.cargo/bin:$PATH"
+    cd /vagrant
+    echo "=== Building eBPF module ==="
+    cargo build --package rustedbytes-ebpf
+    echo "=== Running integration tests ==="
+    cargo test --package rustedbytes-ebpf
+    echo "=== All tests passed ==="
+  SHELL
+end
